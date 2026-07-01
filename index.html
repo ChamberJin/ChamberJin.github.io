@@ -859,6 +859,11 @@ body::before {
               <div class="total-value regular" id="totalRegular">0</div>
               <div class="total-sub">持有 <span id="holdRegular">0</span> + 获取 <span id="gainRegular">0</span></div>
             </div>
+            <div class="total-card" style="border-color:var(--gold);border-width:2px;background:linear-gradient(135deg,rgba(212,168,67,0.08),rgba(212,168,67,0.02));">
+              <div class="total-label">🎯 抽数合计</div>
+              <div class="total-value" id="totalPulls" style="color:var(--gold-light);">0</div>
+              <div class="total-sub">余 <span id="remainderJade">0</span> 星琼</div>
+            </div>
           </div>
         </div>
         <div class="results-breakdown">
@@ -1702,6 +1707,13 @@ function updateResults(agg, holdings) {
   document.getElementById('gainJade').textContent = total.stellarJade.toLocaleString();
   document.getElementById('gainSpecial').textContent = total.specialPass.toLocaleString();
   document.getElementById('gainRegular').textContent = total.regularPass.toLocaleString();
+
+  // 抽数合计 = 星琼÷160（取整）+ 专票
+  const pullsFromJade = Math.floor(totalJade / 160);
+  const remainderJade = totalJade % 160;
+  const totalPulls = pullsFromJade + totalSpecial;
+  document.getElementById('totalPulls').textContent = totalPulls.toLocaleString();
+  document.getElementById('remainderJade').textContent = remainderJade.toLocaleString();
 
   // Breakdown table
   const tbody = document.getElementById('breakdownBody');
