@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Edit", "Bash(grep -n 'aspect-ratio.*1\\|day-cell {' star-rail-calculator.html | head -5)", "Bash(git init && git add star-rail-calculator.html && git commit -m \"Initial commit: 星琼计算器 Phase 1\")"]
