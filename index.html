@@ -1617,6 +1617,8 @@ class Calendar {
 const tooltipEl = document.getElementById('eventTooltip');
 
 function showTooltip(event, date, events) {
+  // Skip tooltip on touch devices (mobile)
+  if (window.matchMedia('(pointer: coarse)').matches) return;
   const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled };
   const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日`;
   let html = `<div class="tt-date">📅 ${dateStr}</div>`;
