@@ -770,6 +770,14 @@ body::before {
   <div class="main-layout">
     <!-- Controls: horizontal card row -->
     <div class="controls-panel">
+      <!-- Story Event Rewards (hidden until range selected) -->
+      <div class="card" id="storyRewardPanel" style="display:none;">
+        <div class="panel-section">
+          <div class="panel-section-title">剧情活动奖励</div>
+          <div id="storyRewardList"></div>
+        </div>
+      </div>
+
       <!-- Resources -->
       <div class="card">
         <div class="panel-section">
@@ -984,7 +992,7 @@ function getVersion(date) {
   // Calculate days from anchor
   const anchor = VERSION_ANCHOR.date;
   const diffDays = Math.round((date - anchor) / DAY_MS);
-  const versionOffset = Math.round(diffDays / VERSION_DAYS);
+  const versionOffset = Math.floor(diffDays / VERSION_DAYS);
 
   let major = VERSION_ANCHOR.major;
   let minor = VERSION_ANCHOR.minor;
@@ -1155,7 +1163,12 @@ function calculateRange(start, end, opts) {
   }
   result._total = { stellarJade: 0, specialPass: 0, regularPass: 0 };
 
+  // Skip today — start from tomorrow
+  const today = startOfDay(new Date());
   let cur = new Date(start);
+  if (isSameDay(cur, today)) {
+    cur = addDays(cur, 1);
+  }
   while (cur <= end) {
     for (const rule of RULES) {
       if (rule.check(cur, opts)) {
@@ -1177,7 +1190,7 @@ function calculateRange(start, end, opts) {
 // Goal-oriented: find the date when target is reached
 function calculateGoal(targetJade, opts) {
   const today = startOfDay(new Date());
-  const start = new Date(today); // from today (inclusive)
+  const start = addDays(today, 1); // skip today, matching calculateRange
 
   let cumulative = 0;
   let specialPassTotal = 0;
@@ -1185,8 +1198,33 @@ function calculateGoal(targetJade, opts) {
   const maxDays = 730; // 2 years max
   const dailyBreakdown = [];
 
+  // Find future unstarted versions for story rewards
+  const futureVersions = [];
+  {
+    const farEnd = addDays(today, maxDays);
+    const firstVer = getVersion(today);
+    if (firstVer) {
+      let vStart = getVersionStartDate(firstVer);
+      let vLabel = getVersionLabel(firstVer);
+      while (vStart <= farEnd) {
+        if (vStart > today && !futureVersions.some(v => v.label === vLabel)) {
+          futureVersions.push({ label: vLabel, startDate: vStart });
+        }
+        vStart = addDays(vStart, VERSION_DAYS);
+        vLabel = getVersionLabel(getVersion(vStart));
+      }
+    }
+  }
+
   for (let i = 0; i < maxDays; i++) {
     let dayTotal = 0;
+    // Add one-time story rewards for future versions
+    for (const fv of futureVersions) {
+      if (isSameDay(cur, fv.startDate)) {
+        dayTotal += 4000 + 10 * 160;
+        specialPassTotal += 10;
+      }
+    }
     for (const rule of RULES) {
       if (rule.check(cur, opts)) {
         const reward = rule.getReward(cur, opts);
@@ -1610,6 +1648,25 @@ class Calendar {
       agg._total.stellarJade += res._total.stellarJade;
       agg._total.specialPass += res._total.specialPass;
       agg._total.regularPass += res._total.regularPass;
+
+      // Add story event rewards
+      const storyTotal = getStoryRewardTotal();
+      if (storyTotal.stellarJade > 0 || storyTotal.specialPass > 0) {
+        agg.storyReward = {
+          stellarJade: storyTotal.stellarJade,
+          specialPass: storyTotal.specialPass,
+          regularPass: 0,
+          name: '剧情活动奖励',
+          color: '#e09040'
+        };
+        agg._total.stellarJade += storyTotal.stellarJade;
+        agg._total.specialPass += storyTotal.specialPass;
+      } else {
+        delete agg.storyReward;
+      }
+    } else {
+      // Clear story rewards when no range selected
+      document.getElementById('storyRewardPanel').style.display = 'none';
     }
 
     updateResults(agg, this.resourceManager.holdings);
@@ -1666,11 +1723,16 @@ function updateRangeList() {
         ? '已选起点，点击终点完成区间'
         : '点击日期选择起点');
     container.innerHTML = `<div class="range-empty">${msg}</div>`;
+    document.getElementById('storyRewardPanel').style.display = 'none';
     return;
   }
   const end = rangeManager.getEndDate();
   const start = rangeManager.getStartDate();
   const days = rangeManager.getTotalDays();
+
+  // Update story rewards card
+  updateStoryRewards(start, end);
+
   const startLabel = rangeManager.fixedToday
     ? '今天'
     : `${start.getMonth()+1}/${start.getDate()}`;
@@ -1690,6 +1752,123 @@ function updateRangeList() {
     updateRangeList();
     calendar.recalculate();
   });
+}
+
+/* ============================================================
+   Story Event Rewards
+   ============================================================ */
+// State: { versionLabel: { checked: bool } }
+let storyRewardState = {};
+
+function getVersionStartDate(ver) {
+  // Walk from anchor version (v4.4 = 2026-07-15) to target version
+  const anchor = new Date(2026, 6, 15);
+  let testVer = getVersion(anchor);
+  let testDate = new Date(anchor);
+  const targetLabel = getVersionLabel(ver);
+
+  // Walk forward
+  while (getVersionLabel(testVer) !== targetLabel && testDate.getFullYear() < 2035) {
+    testDate = addDays(testDate, VERSION_DAYS);
+    testVer = getVersion(testDate);
+  }
+  if (getVersionLabel(testVer) === targetLabel) return testDate;
+
+  // Walk backward
+  testDate = new Date(anchor);
+  while (getVersionLabel(testVer) !== targetLabel && testDate.getFullYear() > 2020) {
+    testDate = addDays(testDate, -VERSION_DAYS);
+    testVer = getVersion(testDate);
+  }
+  return testDate;
+}
+
+function findVersionsInRange(start, end) {
+  const versions = [];
+  const seen = new Set();
+  // Start from the first version's start date
+  const firstVer = getVersion(start);
+  if (!firstVer) return versions;
+  let curStart = getVersionStartDate(firstVer);
+  let curLabel = getVersionLabel(firstVer);
+  while (curStart <= end) {
+    if (!seen.has(curLabel)) {
+      seen.add(curLabel);
+      const curVer = getVersion(curStart);
+      if (curVer) {
+        versions.push({ label: curLabel, ver: curVer, startDate: new Date(curStart) });
+      }
+    }
+    curStart = addDays(curStart, VERSION_DAYS);
+    curLabel = getVersionLabel(getVersion(curStart));
+  }
+  return versions;
+}
+
+function updateStoryRewards(start, end) {
+  const panel = document.getElementById('storyRewardPanel');
+  const list = document.getElementById('storyRewardList');
+
+  if (!start || !end) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  const versions = findVersionsInRange(start, end);
+  if (versions.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+
+  // Initialize new versions
+  for (const v of versions) {
+    if (!(v.label in storyRewardState)) {
+      // Checked if version starts on or after calculation start
+      // Auto-check if version hasn't started yet (future version),
+      // otherwise check if version starts after calculation start
+      const todayDate = startOfDay(new Date());
+      const isFutureVersion = v.startDate > todayDate;
+      storyRewardState[v.label] = { checked: isFutureVersion || v.startDate > start, startDate: v.startDate };
+    }
+  }
+
+  // Remove stale versions
+  const currentLabels = new Set(versions.map(v => v.label));
+  for (const key of Object.keys(storyRewardState)) {
+    if (!currentLabels.has(key)) delete storyRewardState[key];
+  }
+
+  // Render
+  list.innerHTML = '';
+  for (const v of versions) {
+    const state = storyRewardState[v.label];
+    const item = document.createElement('div');
+    item.className = 'toggle-row';
+    const startStr = `${v.startDate.getMonth()+1}/${v.startDate.getDate()}`;
+    item.innerHTML = `
+      <label style="font-size:0.82rem;">📖 ${v.label}（${startStr}起）<span style="display:block;font-size:0.7rem;color:var(--text-dim);margin-top:2px;">+4000星琼 +10专票</span></label>
+      <div class="toggle-switch ${state.checked ? 'active' : ''}" data-version="${v.label}"></div>
+    `;
+    item.querySelector('.toggle-switch').addEventListener('click', function() {
+      this.classList.toggle('active');
+      storyRewardState[this.dataset.version].checked = this.classList.contains('active');
+      calendar.recalculate();
+    });
+    list.appendChild(item);
+  }
+}
+
+function getStoryRewardTotal() {
+  let jade = 0, special = 0;
+  for (const key of Object.keys(storyRewardState)) {
+    if (storyRewardState[key].checked) {
+      jade += 4000;
+      special += 10;
+    }
+  }
+  return { stellarJade: jade, specialPass: special };
 }
 
 function updateResults(agg, holdings) {
@@ -1732,6 +1911,19 @@ function updateResults(agg, holdings) {
     `;
     tbody.appendChild(tr);
   }
+
+  // Story reward row
+  if (agg.storyReward) {
+    const d = agg.storyReward;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="bd-name"><span class="bd-color" style="background:${d.color}"></span>${d.name}</span></td>
+      <td class="bd-value">${d.stellarJade > 0 ? d.stellarJade.toLocaleString() : '-'}</td>
+      <td class="bd-value">${d.specialPass > 0 ? d.specialPass.toLocaleString() : '-'}</td>
+      <td class="bd-value">-</td>
+    `;
+    tbody.appendChild(tr);
+  }
   if (!hasAny) {
     tbody.innerHTML = '<tr><td class="bd-empty" colspan="4">请选择未来日期区间开始计算</td></tr>';
   }
@@ -1745,11 +1937,20 @@ function updateGoalResult(targetJade, result, currentTotal) {
     return;
   }
   const dateStr = `${result.date.getFullYear()}年${result.date.getMonth()+1}月${result.date.getDate()}日`;
+  // Count story rewards included in the result
+  let storyJade = 0, storySpecial = 0;
+  for (const key of Object.keys(storyRewardState)) {
+    if (storyRewardState[key].checked) {
+      storyJade += 4000;
+      storySpecial += 10;
+    }
+  }
+  const hasStory = storyJade > 0 || storySpecial > 0;
   el.innerHTML = `
     ✅ 目标 <span class="gr-value">${targetJade.toLocaleString()}</span> 星琼 &nbsp;|&nbsp; 当前持有 <span class="gr-value">${currentTotal.toLocaleString()}</span> 星琼
     <br>还需攒 <span class="gr-value">${(targetJade - currentTotal).toLocaleString()}</span> 星琼，预计 <span class="gr-value">${result.daysNeeded}</span> 天
     <br>预计达成日期：<span class="gr-date">${dateStr}</span>
-    <br><span style="font-size:0.75rem;color:var(--text-dim);">（期间获取专票 ${result.specialPassTotal} 张 = ${(result.specialPassTotal * 160).toLocaleString()} 星琼）</span>
+    <br><span style="font-size:0.75rem;color:var(--text-dim);">（期间获取专票 ${result.specialPassTotal} 张 = ${(result.specialPassTotal * 160).toLocaleString()} 星琼${hasStory ? `，剧情奖励 ${storyJade.toLocaleString()} 星琼 + ${storySpecial} 专票` : ''}）</span>
   `;
   el.classList.add('visible');
 }
@@ -1807,6 +2008,19 @@ function init() {
   // Render calendar
   calendar.render();
   updateRangeList();
+
+  // Auto-select current version's end date
+  const todayDate = startOfDay(new Date());
+  const currentVer = getVersion(todayDate);
+  if (currentVer) {
+    const verStart = getVersionStartDate(currentVer);
+    const verEnd = addDays(verStart, VERSION_DAYS - 1);
+    if (verEnd > todayDate) {
+      rangeManager.select(verEnd);
+      calendar.render();
+      updateRangeList();
+    }
+  }
 
   // --- Event Bindings ---
 
@@ -1888,6 +2102,15 @@ function init() {
     const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled };
     const result = calculateGoal(remaining, opts);
     updateGoalResult(targetJade, result, currentTotal);
+
+    // Auto-select calendar range from today to estimated date
+    if (result.reached && result.date) {
+      calendar.setYear(result.date.getFullYear());
+      rangeManager.select(result.date);
+      calendar.render();
+      updateRangeList();
+      calendar.recalculate();
+    }
   });
 
   // Initial calculation
