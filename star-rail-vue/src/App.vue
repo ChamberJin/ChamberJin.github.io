@@ -14,6 +14,7 @@
       :year="year"
       :rangeManager="rangeManager"
       :monthlyCardEnabled="resources.monthlyCardEnabled.value"
+      :remainingCardDays="resources.remainingCardDays.value"
       @select-date="handleDateClick"
     />
 
@@ -25,7 +26,9 @@
         <ResourcePanel :holdings="resources.holdings" @update-holdings="updateHoldings" />
         <MonthlyCardPanel
           :enabled="resources.monthlyCardEnabled.value"
+          :remainingDays="resources.remainingCardDays.value"
           @toggle="resources.monthlyCardEnabled.value = !resources.monthlyCardEnabled.value"
+          @update-remaining="resources.remainingCardDays.value = $event"
         />
         <RangePanel
           :rangeManager="rangeManager"
@@ -34,6 +37,7 @@
         <GoalPanel
           :holdings="resources.holdings"
           :monthlyCardEnabled="resources.monthlyCardEnabled.value"
+          :remainingCardDays="resources.remainingCardDays.value"
           :calculateGoal="calculation.calculateGoal"
           @recalculated="recalculate"
         />
@@ -96,7 +100,6 @@ provide('calculation', calculation)
 const tooltip = reactive({ visible: false, x: 0, y: 0, html: '' })
 provide('tooltip', tooltip)
 
-
 // Current results for display
 const currentResults = ref(null)
 const storyVersions = ref([])
@@ -129,18 +132,18 @@ function handleDateClick(date) {
 }
 
 function recalculate() {
-  const opts = { monthlyCardEnabled: resources.monthlyCardEnabled.value }
+  const opts = {
+    monthlyCardEnabled: resources.monthlyCardEnabled.value,
+    remainingCardDays: resources.remainingCardDays.value
+  }
   const selected = rangeManager.selectedDate.value
   if (selected) {
-    // Sync year to selected date's year
     year.value = selected.getFullYear()
     const startDate = rangeManager.effectiveStartDate.value
     const res = rules.calculateRange(startDate, selected, opts)
     
-    // Update story rewards
     storyVersions.value = storyRewards.update(startDate, selected)
     
-    // Add story rewards to result
     const storyTotal = storyRewards.getRewardTotal()
     if (storyTotal.stellarJade > 0 || storyTotal.specialPass > 0) {
       res.storyReward = {
@@ -169,6 +172,7 @@ function updateHoldings(key, val) {
 }
 
 watch(() => resources.monthlyCardEnabled.value, () => recalculate())
+watch(() => resources.remainingCardDays.value, () => recalculate())
 
 // Auto-select current version's end date on mount
 onMounted(() => {

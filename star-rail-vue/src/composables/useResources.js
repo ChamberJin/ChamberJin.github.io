@@ -8,6 +8,7 @@ export function useResources() {
     regularPass: 0
   })
   const monthlyCardEnabled = ref(true)
+  const remainingCardDays = ref(0)
 
   function load() {
     try {
@@ -17,6 +18,7 @@ export function useResources() {
         holdings.specialPass = data.sp || 0
         holdings.regularPass = data.rp || 0
         if (data.mc !== undefined) monthlyCardEnabled.value = data.mc
+        if (data.rcd !== undefined) remainingCardDays.value = data.rcd
       }
     } catch (e) { /* ignore */ }
   }
@@ -26,14 +28,14 @@ export function useResources() {
       sj: holdings.stellarJade,
       sp: holdings.specialPass,
       rp: holdings.regularPass,
-      mc: monthlyCardEnabled.value
+      mc: monthlyCardEnabled.value,
+      rcd: remainingCardDays.value
     }))
   }
 
   load()
 
-  // Auto-save on changes
-  watch([holdings, monthlyCardEnabled], save, { deep: true })
+  watch([holdings, monthlyCardEnabled, remainingCardDays], save, { deep: true })
 
-  return { holdings, monthlyCardEnabled, load, save }
+  return { holdings, monthlyCardEnabled, remainingCardDays, load, save }
 }

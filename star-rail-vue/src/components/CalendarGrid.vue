@@ -15,6 +15,7 @@
           :date="new Date(year, m - 1, d)"
           :rangeManager="rangeManager"
           :monthlyCardEnabled="monthlyCardEnabled"
+          :remainingCardDays="remainingCardDays"
           @click="$emit('select-date', new Date(year, m - 1, d))"
         />
       </div>
@@ -27,7 +28,7 @@ import { getMonthDays, getFirstDayOfMonth } from '../utils/date.js'
 import { MONTH_NAMES, WEEKDAY_NAMES } from '../utils/constants.js'
 import DayCell from './DayCell.vue'
 
-const props = defineProps({ year: Number, rangeManager: Object, monthlyCardEnabled: Boolean })
+const props = defineProps({ year: Number, rangeManager: Object, monthlyCardEnabled: Boolean, remainingCardDays: Number })
 defineEmits(['select-date'])
 
 const now = new Date()

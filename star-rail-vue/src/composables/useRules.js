@@ -1,5 +1,5 @@
 import { EVENT_COLORS } from '../utils/constants.js'
-import { addDays, startOfDay, isSameDay } from '../utils/date.js'
+import { addDays, startOfDay } from '../utils/date.js'
 
 const CHAOS_ANCHOR = new Date(2026, 5, 22)
 const LIVE_ANCHOR = new Date(2026, 6, 3)
@@ -13,7 +13,17 @@ const RULE_DEFS = [
   },
   {
     id: 'monthlyCard', name: '月卡奖励', color: EVENT_COLORS.monthlyCard,
-    check(date, opts) { return opts?.monthlyCardEnabled },
+    check(date, opts) {
+      if (!opts?.monthlyCardEnabled) return false
+      // If remaining days specified, only apply for first N days from today
+      const days = opts?.remainingCardDays || 0
+      if (days > 0) {
+        const today = startOfDay(new Date())
+        const diff = Math.round((date - today) / 86400000)
+        return diff >= 0 && diff < days
+      }
+      return true  // enabled with no day limit — always apply
+    },
     getReward() { return { stellarJade: 90, specialPass: 0, regularPass: 0 } }
   },
   {
@@ -67,12 +77,7 @@ export function useRules() {
     }
     result._total = { stellarJade: 0, specialPass: 0, regularPass: 0 }
 
-    // Skip today — start from tomorrow
-    const today = startOfDay(new Date())
     let cur = new Date(start)
-    if (isSameDay(cur, today)) {
-      cur = addDays(cur, 1)
-    }
     while (cur <= end) {
       for (const rule of RULE_DEFS) {
         if (rule.check(cur, opts)) {

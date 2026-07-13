@@ -23,6 +23,7 @@ import { ref, inject } from 'vue'
 const props = defineProps({
   holdings: Object,
   monthlyCardEnabled: Boolean,
+  remainingCardDays: Number,
   calculateGoal: Function
 })
 
@@ -47,7 +48,7 @@ function calc() {
     return
   }
 
-  const opts = { monthlyCardEnabled: props.monthlyCardEnabled }
+  const opts = { monthlyCardEnabled: props.monthlyCardEnabled, remainingCardDays: props.remainingCardDays }
   const result = props.calculateGoal(targetJade, opts, props.holdings)
 
   if (!result.reached) {

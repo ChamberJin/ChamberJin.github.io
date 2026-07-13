@@ -807,6 +807,13 @@ body::before {
             <label>☕ 小月卡（每天 90 星琼）</label>
             <div class="toggle-switch active" id="toggleMonthlyCard" data-active="true"></div>
           </div>
+          <div id="remainingCardRow" style="display:none;margin-top:8px;">
+            <label style="font-size:0.78rem;color:var(--text-dim);display:flex;align-items:center;gap:8px;">
+              剩余月卡天数（0=不限）
+              <input type="number" id="inputRemainingDays" min="0" max="180" value="0"
+                style="width:60px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:6px;padding:4px 8px;color:var(--text-primary);font-size:0.85rem;outline:none;text-align:center;font-weight:600;">
+            </label>
+          </div>
         </div>
       </div>
 
@@ -1060,8 +1067,15 @@ RULES.push({
   name: '月卡奖励',
   color: EVENT_COLORS.monthlyCard,
   check(date, opts) {
-    return opts && opts.monthlyCardEnabled;
-  },
+      if (!opts?.monthlyCardEnabled) return false;
+      const days = opts?.remainingCardDays || 0;
+      if (days > 0) {
+        const today = startOfDay(new Date());
+        const diff = Math.round((date - today) / 86400000);
+        return diff >= 0 && diff < days;
+      }
+      return true;
+    },
   getReward(date, opts) {
     return { stellarJade: 90, specialPass: 0, regularPass: 0 };
   }
@@ -1163,12 +1177,7 @@ function calculateRange(start, end, opts) {
   }
   result._total = { stellarJade: 0, specialPass: 0, regularPass: 0 };
 
-  // Skip today — start from tomorrow
-  const today = startOfDay(new Date());
   let cur = new Date(start);
-  if (isSameDay(cur, today)) {
-    cur = addDays(cur, 1);
-  }
   while (cur <= end) {
     for (const rule of RULES) {
       if (rule.check(cur, opts)) {
@@ -1190,7 +1199,7 @@ function calculateRange(start, end, opts) {
 // Goal-oriented: find the date when target is reached
 function calculateGoal(targetJade, opts) {
   const today = startOfDay(new Date());
-  const start = addDays(today, 1); // skip today, matching calculateRange
+  const start = new Date(today);
 
   let cumulative = 0;
   let specialPassTotal = 0;
@@ -1377,6 +1386,7 @@ class ResourceManager {
   constructor() {
     this.holdings = { stellarJade: 0, specialPass: 0, regularPass: 0 };
     this.monthlyCardEnabled = true;
+    this.remainingCardDays = 0;
     this.load();
   }
 
@@ -1388,6 +1398,7 @@ class ResourceManager {
         this.holdings.specialPass = data.sp || 0;
         this.holdings.regularPass = data.rp || 0;
         if (data.mc !== undefined) this.monthlyCardEnabled = data.mc;
+        if (data.rcd !== undefined) this.remainingCardDays = data.rcd;
       }
     } catch (e) { /* ignore */ }
   }
@@ -1397,7 +1408,8 @@ class ResourceManager {
       sj: this.holdings.stellarJade,
       sp: this.holdings.specialPass,
       rp: this.holdings.regularPass,
-      mc: this.monthlyCardEnabled
+      mc: this.monthlyCardEnabled,
+      rcd: this.remainingCardDays
     }));
     // Flash notification
     const el = document.getElementById('saveFlash');
@@ -1410,6 +1422,7 @@ class ResourceManager {
   setSpecial(v) { this.holdings.specialPass = Math.max(0, Math.floor(v)); this.save(); }
   setRegular(v) { this.holdings.regularPass = Math.max(0, Math.floor(v)); this.save(); }
   setMonthlyCard(v) { this.monthlyCardEnabled = v; this.save(); }
+  setRemainingDays(v) { this.remainingCardDays = Math.max(0, Math.floor(v)); this.save(); }
 }
 
 /* ============================================================
@@ -1529,7 +1542,7 @@ class Calendar {
         }
 
         // Event markers — one per reward type
-        const opts = { monthlyCardEnabled: this.resourceManager.monthlyCardEnabled };
+        const opts = { monthlyCardEnabled: this.resourceManager.monthlyCardEnabled, remainingCardDays: this.resourceManager.remainingCardDays };
         const events = getEventsForDate(date, opts);
 
         // Check if this is a version update date → show version label
@@ -1628,7 +1641,7 @@ class Calendar {
   }
 
   recalculate() {
-    const opts = { monthlyCardEnabled: this.resourceManager.monthlyCardEnabled };
+    const opts = { monthlyCardEnabled: this.resourceManager.monthlyCardEnabled, remainingCardDays: this.resourceManager.remainingCardDays };
 
     const agg = {};
     for (const rule of RULES) {
@@ -1681,7 +1694,7 @@ const tooltipEl = document.getElementById('eventTooltip');
 function showTooltip(event, date, events) {
   // Skip tooltip on touch devices (mobile)
   if (window.matchMedia('(pointer: coarse)').matches) return;
-  const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled };
+  const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled, remainingCardDays: resourceManager.remainingCardDays };
   const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日`;
   let html = `<div class="tt-date">📅 ${dateStr}</div>`;
   for (const ev of events) {
@@ -2000,6 +2013,12 @@ function init() {
   document.getElementById('inputSpecial').value = resourceManager.holdings.specialPass;
   document.getElementById('inputRegular').value = resourceManager.holdings.regularPass;
 
+  // Initialize remaining days
+  const remainingDaysInput = document.getElementById('inputRemainingDays');
+  const remainingCardRow = document.getElementById('remainingCardRow');
+  remainingDaysInput.value = resourceManager.remainingCardDays;
+  if (resourceManager.monthlyCardEnabled) remainingCardRow.style.display = 'block';
+
   // Monthly card toggle
   const toggle = document.getElementById('toggleMonthlyCard');
   if (resourceManager.monthlyCardEnabled) toggle.classList.add('active');
@@ -2062,7 +2081,14 @@ function init() {
   toggle.addEventListener('click', function() {
     const active = this.classList.toggle('active');
     resourceManager.setMonthlyCard(active);
+    remainingCardRow.style.display = active ? 'block' : 'none';
     calendar.render();
+    calendar.recalculate();
+  });
+
+  // Remaining days input
+  remainingDaysInput.addEventListener('input', function() {
+    resourceManager.setRemainingDays(parseInt(this.value) || 0);
     calendar.recalculate();
   });
 
@@ -2099,7 +2125,7 @@ function init() {
       return;
     }
 
-    const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled };
+    const opts = { monthlyCardEnabled: resourceManager.monthlyCardEnabled, remainingCardDays: resourceManager.remainingCardDays };
     const result = calculateGoal(remaining, opts);
     updateGoalResult(targetJade, result, currentTotal);
 
