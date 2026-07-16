@@ -770,6 +770,13 @@ body::before {
   <div class="main-layout">
     <!-- Controls: horizontal card row -->
     <div class="controls-panel">
+      <!-- Account Tabs -->
+      <div class="card" style="flex: 0 0 100%;min-width:0;padding:8px 12px;">
+        <div class="account-tabs" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <div id="accountTabList" style="display:flex;gap:4px;flex:1;flex-wrap:wrap;"></div>
+          <button id="btnAddAccount" style="background:rgba(255,255,255,0.08);border:1px solid var(--border-color);border-radius:6px;color:var(--text-secondary);cursor:pointer;padding:4px 10px;font-size:0.8rem;white-space:nowrap;">+ 添加账号</button>
+        </div>
+      </div>
       <!-- Story Event Rewards (hidden until range selected) -->
       <div class="card" id="storyRewardPanel" style="display:none;">
         <div class="panel-section">
@@ -1426,6 +1433,142 @@ class ResourceManager {
 }
 
 /* ============================================================
+   Account Manager — multi-account support
+   ============================================================ */
+const ACCOUNTS_KEY = 'hsr_accounts';
+
+class AccountManager {
+  constructor(resourceManager, rangeManager) {
+    this.rm = resourceManager;
+    this.rgm = rangeManager;
+    this.accounts = []; // [{ id, name, resources, range }]
+    this.activeId = null;
+    this.load();
+  }
+
+  load() {
+    try {
+      const data = JSON.parse(localStorage.getItem(ACCOUNTS_KEY));
+      if (data && data.accounts && data.accounts.length > 0) {
+        this.accounts = data.accounts;
+        this.activeId = data.activeId || this.accounts[0].id;
+        this.applyActive();
+        return;
+      }
+    } catch (e) { /* ignore */ }
+
+    // First launch: migrate existing single-account data into one account
+    const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const defaultResources = { sj: 0, sp: 0, rp: 0, mc: true, rcd: 0 };
+    const res = legacy || defaultResources;
+    const id = this.generateId();
+    this.accounts = [{
+      id,
+      name: '账号 1',
+      resources: { sj: res.sj || 0, sp: res.sp || 0, rp: res.rp || 0, mc: res.mc !== false, rcd: res.rcd || 0 },
+      range: { selectedDate: null, startDate: null, pendingStart: null, fixedToday: true }
+    }];
+    this.activeId = id;
+    this.applyActive();
+    this.save();
+  }
+
+  generateId() {
+    return 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  applyActive() {
+    const acc = this.accounts.find(a => a.id === this.activeId);
+    if (!acc) return;
+    const r = acc.resources;
+    this.rm.holdings.stellarJade = r.sj;
+    this.rm.holdings.specialPass = r.sp;
+    this.rm.holdings.regularPass = r.rp;
+    this.rm.monthlyCardEnabled = r.mc;
+    this.rm.remainingCardDays = r.rcd;
+    if (acc.range) {
+      this.rgm.selectedDate = acc.range.selectedDate ? new Date(acc.range.selectedDate) : null;
+      this.rgm.startDate = acc.range.startDate ? new Date(acc.range.startDate) : null;
+      this.rgm.pendingStart = acc.range.pendingStart ? new Date(acc.range.pendingStart) : null;
+      this.rgm.fixedToday = acc.range.fixedToday !== false;
+    }
+  }
+
+  snapshotActive() {
+    const acc = this.accounts.find(a => a.id === this.activeId);
+    if (!acc) return;
+    acc.resources = {
+      sj: this.rm.holdings.stellarJade,
+      sp: this.rm.holdings.specialPass,
+      rp: this.rm.holdings.regularPass,
+      mc: this.rm.monthlyCardEnabled,
+      rcd: this.rm.remainingCardDays
+    };
+    acc.range = {
+      selectedDate: this.rgm.selectedDate ? this.rgm.selectedDate.getTime() : null,
+      startDate: this.rgm.startDate ? this.rgm.startDate.getTime() : null,
+      pendingStart: this.rgm.pendingStart ? this.rgm.pendingStart.getTime() : null,
+      fixedToday: this.rgm.fixedToday
+    };
+  }
+
+  save() {
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify({
+      accounts: this.accounts,
+      activeId: this.activeId
+    }));
+  }
+
+  addAccount(name) {
+    const id = this.generateId();
+    this.accounts.push({
+      id,
+      name: name || `账号 ${this.accounts.length + 1}`,
+      resources: { sj: 0, sp: 0, rp: 0, mc: true, rcd: 0 },
+      range: { selectedDate: null, startDate: null, pendingStart: null, fixedToday: true }
+    });
+    this.save();
+    return id;
+  }
+
+  removeAccount(id) {
+    if (this.accounts.length <= 1) return false; // keep at least one
+    const idx = this.accounts.findIndex(a => a.id === id);
+    if (idx === -1) return false;
+    this.accounts.splice(idx, 1);
+    if (this.activeId === id) {
+      this.activeId = this.accounts[0].id;
+      this.applyActive();
+    }
+    this.save();
+    return true;
+  }
+
+  switchAccount(id) {
+    if (id === this.activeId) return;
+    this.snapshotActive();
+    this.activeId = id;
+    this.applyActive();
+    this.save();
+  }
+
+  getActive() {
+    return this.accounts.find(a => a.id === this.activeId);
+  }
+
+  getActiveName() {
+    const acc = this.getActive();
+    return acc ? acc.name : '';
+  }
+
+  autoSave() {
+    // Hook into ResourceManager save — intercept and save at account level
+    this.snapshotActive();
+    this.save();
+  }
+}
+
+/* ============================================================
    Calendar Renderer
    ============================================================ */
 const MONTH_NAMES = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
@@ -2001,30 +2144,87 @@ function renderLegend() {
    Initialization
    ============================================================ */
 const resourceManager = new ResourceManager();
+
 const rangeManager = new RangeManager();
 const calendar = new Calendar(rangeManager, resourceManager);
 
+const accountManager = new AccountManager(resourceManager, rangeManager);
+resourceManager.save = function() {
+  ResourceManager.prototype.save.call(this);
+  accountManager.autoSave();
+};
+
 // Initialize UI
+/* ============================================================
+   Account Tab Rendering
+   ============================================================ */
+function renderAccountTabs() {
+  const container = document.getElementById("accountTabList");
+  if (!container) return;
+  let html = "";
+  accountManager.accounts.forEach((acc, i) => {
+    var isActive = acc.id === accountManager.activeId;
+    var bg = isActive ? "background:var(--gold);color:#fff;" : "background:rgba(255,255,255,0.05);color:var(--text-secondary);";
+    html += '<div class="account-tab" data-id="' + acc.id + '" style="cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.8rem;font-weight:500;white-space:nowrap;transition:all 0.2s;' + bg + '" data-active="' + isActive + '">' + acc.name + '</div>';
+  });
+  container.innerHTML = html;
+  // Click handlers
+  container.querySelectorAll(".account-tab").forEach(tab => {
+    tab.addEventListener("click", function() {
+      var id = this.dataset.id;
+      if (id === accountManager.activeId) return;
+      accountManager.switchAccount(id);
+      refreshAccountUI();
+      calendar.render();
+      updateRangeList();
+      calendar.recalculate();
+      renderAccountTabs(); // update active tab style
+    });
+    tab.addEventListener("dblclick", function() {
+      var id = this.dataset.id;
+      var acc = accountManager.accounts.find(function(a) { return a.id === id; });
+      if (!acc) return;
+      var name = prompt("修改账号名称:", acc.name);
+      if (name && name.trim()) {
+        acc.name = name.trim();
+        accountManager.save();
+        renderAccountTabs();
+      }
+    });
+    tab.addEventListener("contextmenu", function(e) {
+      e.preventDefault();
+      var id = this.dataset.id;
+      if (accountManager.accounts.length <= 1) return;
+      var acc = accountManager.accounts.find(function(a) { return a.id === id; });
+      if (confirm("确定删除账号 \"" + (acc ? acc.name : "") + "\" 吗？")) {
+        accountManager.removeAccount(id);
+        refreshAccountUI();
+        renderAccountTabs();
+        calendar.render();
+        updateRangeList();
+        calendar.recalculate();
+      }
+    });
+  });
+}
+
+function refreshAccountUI() {
+  document.getElementById("inputJade").value = resourceManager.holdings.stellarJade;
+  document.getElementById("inputSpecial").value = resourceManager.holdings.specialPass;
+  document.getElementById("inputRegular").value = resourceManager.holdings.regularPass;
+  document.getElementById("inputRemainingDays").value = resourceManager.remainingCardDays;
+  const toggle = document.getElementById("toggleMonthlyCard");
+  if (resourceManager.monthlyCardEnabled) toggle.classList.add("active");
+  else toggle.classList.remove("active");
+  const remainingCardRow = document.getElementById("remainingCardRow");
+  remainingCardRow.style.display = resourceManager.monthlyCardEnabled ? "block" : "none";
+}
+
 function init() {
   renderLegend();
+  renderAccountTabs();
+  refreshAccountUI();
 
-  // Load resource values
-  document.getElementById('inputJade').value = resourceManager.holdings.stellarJade;
-  document.getElementById('inputSpecial').value = resourceManager.holdings.specialPass;
-  document.getElementById('inputRegular').value = resourceManager.holdings.regularPass;
-
-  // Initialize remaining days
-  const remainingDaysInput = document.getElementById('inputRemainingDays');
-  const remainingCardRow = document.getElementById('remainingCardRow');
-  remainingDaysInput.value = resourceManager.remainingCardDays;
-  if (resourceManager.monthlyCardEnabled) remainingCardRow.style.display = 'block';
-
-  // Monthly card toggle
-  const toggle = document.getElementById('toggleMonthlyCard');
-  if (resourceManager.monthlyCardEnabled) toggle.classList.add('active');
-  else toggle.classList.remove('active');
-
-  // Render calendar
   calendar.render();
   updateRangeList();
 
@@ -2044,6 +2244,28 @@ function init() {
   // --- Event Bindings ---
 
   // Year nav
+  document.getElementById('btnAddAccount').addEventListener('click', () => {
+    const name = prompt('请输入新账号名称:', '账号 ' + (accountManager.accounts.length + 1));
+    if (name && name.trim()) {
+      accountManager.addAccount(name.trim());
+      accountManager.switchAccount(accountManager.accounts[accountManager.accounts.length - 1].id);
+      refreshAccountUI();
+      renderAccountTabs();
+      // Auto-select current version range for new account
+      const todayDate = startOfDay(new Date());
+      const currentVer = getVersion(todayDate);
+      if (currentVer) {
+        const verStart = getVersionStartDate(currentVer);
+        const verEnd = addDays(verStart, VERSION_DAYS - 1);
+        if (verEnd > todayDate) {
+          rangeManager.select(verEnd);
+        }
+      }
+      calendar.render();
+      updateRangeList();
+      calendar.recalculate();
+    }
+  });
   document.getElementById('btnPrevYear').addEventListener('click', () => {
     calendar.setYear(calendar.year - 1);
     calendar.recalculate();
@@ -2078,6 +2300,9 @@ function init() {
   });
 
   // Monthly card toggle
+  const toggle = document.getElementById('toggleMonthlyCard');
+  const remainingCardRow = document.getElementById('remainingCardRow');
+  const remainingDaysInput = document.getElementById('inputRemainingDays');
   toggle.addEventListener('click', function() {
     const active = this.classList.toggle('active');
     resourceManager.setMonthlyCard(active);
