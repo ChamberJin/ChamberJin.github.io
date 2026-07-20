@@ -205,7 +205,7 @@ body::before {
 }
 .month-header .month-name { color: var(--text-primary); }
 .month-header .version-tag {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 500;
@@ -1696,7 +1696,7 @@ class Calendar {
           const verColor = getVersionColor(ver);
           cell.innerHTML = `
             <span style="font-size:0.65rem;line-height:1.1;display:block;">${d}</span>
-            <span style="font-size:0.55rem;line-height:1.1;display:block;color:${verColor.text};font-weight:600;">${verLabel}</span>
+            <span style="font-size:0.45rem;line-height:1.1;display:block;color:${verColor.text};font-weight:600;">${verLabel}</span>
           `;
         } else {
           cell.textContent = d;
