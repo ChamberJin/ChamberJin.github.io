@@ -434,7 +434,7 @@ body::before {
 /* Resource Inputs */
 .resource-inputs {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 8px;
 }
 .resource-input-group label {
@@ -812,6 +812,10 @@ body::before {
               <label>🎟 通票</label>
               <input type="number" id="inputRegular" min="0" value="0" placeholder="0">
             </div>
+            <div class="resource-input-group">
+              <label>✨ 星芒</label>
+              <input type="number" id="inputStarlight" min="0" value="0" placeholder="0">
+            </div>
           </div>
         </div>
       </div>
@@ -895,6 +899,7 @@ body::before {
               <div class="total-label">🎯 抽数合计</div>
               <div class="total-value" id="totalPulls" style="color:var(--gold-light);">0</div>
               <div class="total-sub">余 <span id="remainderJade">0</span> 星琼</div>
+              <div class="total-sub" id="starlightNote" style="font-size:0.65rem;color:var(--text-dim);margin-top:2px;display:none;"></div>
             </div>
           </div>
         </div>
@@ -1401,7 +1406,7 @@ const STORAGE_KEY = 'hsr_resources';
 
 class ResourceManager {
   constructor() {
-    this.holdings = { stellarJade: 0, specialPass: 0, regularPass: 0 };
+    this.holdings = { stellarJade: 0, specialPass: 0, regularPass: 0, starlight: 0 };
     this.monthlyCardEnabled = true;
     this.remainingCardDays = 0;
     this.load();
@@ -1414,6 +1419,7 @@ class ResourceManager {
         this.holdings.stellarJade = data.sj || 0;
         this.holdings.specialPass = data.sp || 0;
         this.holdings.regularPass = data.rp || 0;
+        this.holdings.starlight = data.sl || 0;
         if (data.mc !== undefined) this.monthlyCardEnabled = data.mc;
         if (data.rcd !== undefined) this.remainingCardDays = data.rcd;
       }
@@ -1425,6 +1431,7 @@ class ResourceManager {
       sj: this.holdings.stellarJade,
       sp: this.holdings.specialPass,
       rp: this.holdings.regularPass,
+      sl: this.holdings.starlight,
       mc: this.monthlyCardEnabled,
       rcd: this.remainingCardDays
     }));
@@ -1438,6 +1445,7 @@ class ResourceManager {
   setJade(v) { this.holdings.stellarJade = Math.max(0, Math.floor(v)); this.save(); }
   setSpecial(v) { this.holdings.specialPass = Math.max(0, Math.floor(v)); this.save(); }
   setRegular(v) { this.holdings.regularPass = Math.max(0, Math.floor(v)); this.save(); }
+  setStarlight(v) { this.holdings.starlight = Math.max(0, Math.floor(v)); this.save(); }
   setMonthlyCard(v) { this.monthlyCardEnabled = v; this.save(); }
   setRemainingDays(v) { this.remainingCardDays = Math.max(0, Math.floor(v)); this.save(); }
 }
@@ -1469,13 +1477,13 @@ class AccountManager {
 
     // First launch: migrate existing single-account data into one account
     const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    const defaultResources = { sj: 0, sp: 0, rp: 0, mc: true, rcd: 0 };
+    const defaultResources = { sj: 0, sp: 0, rp: 0, sl: 0, mc: true, rcd: 0 };
     const res = legacy || defaultResources;
     const id = this.generateId();
     this.accounts = [{
       id,
       name: '账号 1',
-      resources: { sj: res.sj || 0, sp: res.sp || 0, rp: res.rp || 0, mc: res.mc !== false, rcd: res.rcd || 0 },
+      resources: { sj: res.sj || 0, sp: res.sp || 0, rp: res.rp || 0, sl: res.sl || 0, mc: res.mc !== false, rcd: res.rcd || 0 },
       range: { selectedDate: null, startDate: null, pendingStart: null, fixedToday: true }
     }];
     this.activeId = id;
@@ -1494,6 +1502,7 @@ class AccountManager {
     this.rm.holdings.stellarJade = r.sj;
     this.rm.holdings.specialPass = r.sp;
     this.rm.holdings.regularPass = r.rp;
+    this.rm.holdings.starlight = r.sl || 0;
     this.rm.monthlyCardEnabled = r.mc;
     this.rm.remainingCardDays = r.rcd;
     if (acc.range) {
@@ -1511,6 +1520,7 @@ class AccountManager {
       sj: this.rm.holdings.stellarJade,
       sp: this.rm.holdings.specialPass,
       rp: this.rm.holdings.regularPass,
+      sl: this.rm.holdings.starlight,
       mc: this.rm.monthlyCardEnabled,
       rcd: this.rm.remainingCardDays
     };
@@ -1534,7 +1544,7 @@ class AccountManager {
     this.accounts.push({
       id,
       name: name || `账号 ${this.accounts.length + 1}`,
-      resources: { sj: 0, sp: 0, rp: 0, mc: true, rcd: 0 },
+      resources: { sj: 0, sp: 0, rp: 0, sl: 0, mc: true, rcd: 0 },
       range: { selectedDate: null, startDate: null, pendingStart: null, fixedToday: true }
     });
     this.save();
@@ -2064,9 +2074,20 @@ function updateResults(agg, holdings) {
   // 抽数合计 = 星琼÷160（取整）+ 专票
   const pullsFromJade = Math.floor(totalJade / 160);
   const remainderJade = totalJade % 160;
+  const starlightPulls = Math.floor(resourceManager.holdings.starlight / 20);
   const totalPulls = pullsFromJade + totalSpecial;
+  const totalPullsWithSL = totalPulls + starlightPulls;
   document.getElementById('totalPulls').textContent = totalPulls.toLocaleString();
   document.getElementById('remainderJade').textContent = remainderJade.toLocaleString();
+  
+  // Starlight conversion note — only show extra total in small text
+  const slNote = document.getElementById('starlightNote');
+  if (starlightPulls > 0) {
+    slNote.textContent = `含星芒总计 ${totalPullsWithSL.toLocaleString()} 抽`;
+    slNote.style.display = 'block';
+  } else {
+    slNote.style.display = 'none';
+  }
 
   // Breakdown table
   const tbody = document.getElementById('breakdownBody');
@@ -2230,6 +2251,7 @@ function refreshAccountUI() {
   document.getElementById("inputJade").value = resourceManager.holdings.stellarJade;
   document.getElementById("inputSpecial").value = resourceManager.holdings.specialPass;
   document.getElementById("inputRegular").value = resourceManager.holdings.regularPass;
+  document.getElementById("inputStarlight").value = resourceManager.holdings.starlight;
   document.getElementById("inputRemainingDays").value = resourceManager.remainingCardDays;
   const toggle = document.getElementById("toggleMonthlyCard");
   if (resourceManager.monthlyCardEnabled) toggle.classList.add("active");
@@ -2314,6 +2336,12 @@ function init() {
   });
   document.getElementById('inputRegular').addEventListener('input', function() {
     resourceManager.setRegular(parseInt(this.value) || 0);
+    calendar.recalculate();
+  });
+
+  // Starlight input
+  document.getElementById('inputStarlight').addEventListener('input', function() {
+    resourceManager.setStarlight(parseInt(this.value) || 0);
     calendar.recalculate();
   });
 
