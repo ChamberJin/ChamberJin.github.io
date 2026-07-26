@@ -296,6 +296,16 @@ body::before {
   font-weight: 600;
 }
 
+/* Version update day — red background */
+.day-cell.version-day {
+  background: rgba(220, 60, 60, 0.35);
+  box-shadow: inset 0 0 8px rgba(220, 60, 60, 0.3);
+}
+/* 21 days after version update — green background */
+.day-cell.version-day20 {
+  background: rgba(60, 180, 80, 0.3);
+}
+
 /* Event markers bar at bottom of date cell */
 .event-bar {
   position: absolute;
@@ -1688,9 +1698,10 @@ class Calendar {
         const opts = { monthlyCardEnabled: this.resourceManager.monthlyCardEnabled, remainingCardDays: this.resourceManager.remainingCardDays };
         const events = getEventsForDate(date, opts);
 
-        // Check if this is a version update date → show version label
+        // Check if this is a version update date → show version label + red bg
         const hasVersionUpdate = events.some(ev => ev.id === 'versionUpdate');
         if (hasVersionUpdate) {
+          cell.classList.add('version-day');
           const ver = getVersion(date);
           const verLabel = getVersionLabel(ver);
           const verColor = getVersionColor(ver);
@@ -1700,6 +1711,13 @@ class Calendar {
           `;
         } else {
           cell.textContent = d;
+        }
+
+        // 21 days after version update → green background
+        const prevDate = addDays(date, -21);
+        const prevEvents = getEventsForDate(prevDate, opts);
+        if (prevEvents.some(ev => ev.id === 'versionUpdate')) {
+          cell.classList.add('version-day20');
         }
 
         if (events.length > 0) {
